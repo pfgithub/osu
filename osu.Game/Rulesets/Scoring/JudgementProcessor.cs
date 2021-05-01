@@ -19,6 +19,11 @@ namespace osu.Game.Rulesets.Scoring
         public event Action<JudgementResult> NewJudgement;
 
         /// <summary>
+        /// Invoked before a new judgement has occurred. The handler can process and update the judgement.
+        /// </summary>
+        public event Action<JudgementResult> BeforeJudgement;
+
+        /// <summary>
         /// The maximum number of hits that can be judged.
         /// </summary>
         protected int MaxHits { get; private set; }
@@ -54,6 +59,8 @@ namespace osu.Game.Rulesets.Scoring
         /// <param name="result">The <see cref="JudgementResult"/> to apply.</param>
         public void ApplyResult(JudgementResult result)
         {
+            BeforeJudgement?.Invoke(result);
+
             JudgedHits++;
             lastAppliedResult = result;
 
