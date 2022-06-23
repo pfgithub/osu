@@ -143,6 +143,8 @@ namespace osu.Game.Screens.Edit
         private readonly BindableBeatDivisor beatDivisor = new BindableBeatDivisor();
         private EditorClock clock;
 
+        private double? playPreviewStartTime { get; set; } = null;
+
         private IBeatmap playableBeatmap;
         private EditorBeatmap editorBeatmap;
 
@@ -580,6 +582,14 @@ namespace osu.Game.Screens.Edit
                     bottomBar.TestGameplayButton.TriggerClick();
                     return true;
 
+                case GlobalAction.EditorPlayPreview:
+                    if (!clock.IsRunning)
+                    {
+                        playPreviewStartTime = clock.CurrentTime;
+                        clock.Start();
+                    }
+                    return true;
+
                 default:
                     return false;
             }
@@ -587,6 +597,20 @@ namespace osu.Game.Screens.Edit
 
         public void OnReleased(KeyBindingReleaseEvent<GlobalAction> e)
         {
+            switch (e.Action)
+            {
+                case GlobalAction.EditorPlayPreview:
+                    if (playPreviewStartTime.HasValue)
+                    {
+                        clock.Stop();
+                        clock.Seek(playPreviewStartTime.Value);
+                        playPreviewStartTime = null;
+                    }
+                    return;
+
+                default:
+                    return;
+            }
         }
 
         public override void OnEntering(ScreenTransitionEvent e)
