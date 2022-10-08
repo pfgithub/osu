@@ -1,8 +1,6 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-#nullable disable
-
 using osu.Framework.Localisation;
 
 namespace osu.Game.Localisation
@@ -20,6 +18,11 @@ namespace osu.Game.Localisation
         /// "Global"
         /// </summary>
         public static LocalisableString GlobalKeyBindingHeader => new TranslatableString(getKey(@"global_key_binding_header"), @"Global");
+
+        /// <summary>
+        /// "Overlays"
+        /// </summary>
+        public static LocalisableString OverlaysSection => new TranslatableString(getKey(@"overlays_section"), @"Overlays");
 
         /// <summary>
         /// "Song Select"

@@ -1,8 +1,6 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-#nullable disable
-
 using System;
 using System.Linq;
 using NUnit.Framework;
@@ -11,6 +9,7 @@ using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Testing;
+using osu.Game.Beatmaps.ControlPoints;
 using osu.Game.Overlays;
 using osu.Game.Rulesets.Edit;
 using osu.Game.Rulesets.Osu;
@@ -24,7 +23,7 @@ namespace osu.Game.Tests.Visual.Editing
     [TestFixture]
     public class TestSceneComposeScreen : EditorClockTestScene
     {
-        private EditorBeatmap editorBeatmap;
+        private EditorBeatmap editorBeatmap = null!;
 
         [Cached]
         private EditorClipboard clipboard = new EditorClipboard();
@@ -36,8 +35,10 @@ namespace osu.Game.Tests.Visual.Editing
             {
                 var beatmap = new OsuBeatmap
                 {
-                    BeatmapInfo = { Ruleset = new OsuRuleset().RulesetInfo }
+                    BeatmapInfo = { Ruleset = new OsuRuleset().RulesetInfo },
                 };
+
+                beatmap.ControlPointInfo.Add(0, new TimingControlPoint());
 
                 editorBeatmap = new EditorBeatmap(beatmap, new LegacyBeatmapSkin(beatmap.BeatmapInfo, null));
 
@@ -52,7 +53,11 @@ namespace osu.Game.Tests.Visual.Editing
                         (typeof(IBeatSnapProvider), editorBeatmap),
                         (typeof(OverlayColourProvider), new OverlayColourProvider(OverlayColourScheme.Green)),
                     },
-                    Child = new ComposeScreen { State = { Value = Visibility.Visible } },
+                    Children = new Drawable[]
+                    {
+                        editorBeatmap,
+                        new ComposeScreen { State = { Value = Visibility.Visible } },
+                    }
                 };
             });
 

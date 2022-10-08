@@ -1,8 +1,6 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-#nullable disable
-
 using osu.Framework.Localisation;
 
 namespace osu.Game.Localisation
@@ -65,6 +63,11 @@ namespace osu.Game.Localisation
         /// "Run setup wizard"
         /// </summary>
         public static LocalisableString RunSetupWizard => new TranslatableString(getKey(@"run_setup_wizard"), @"Run setup wizard");
+
+        /// <summary>
+        /// "You are running the latest release ({0})"
+        /// </summary>
+        public static LocalisableString RunningLatestRelease(string version) => new TranslatableString(getKey(@"running_latest_release"), @"You are running the latest release ({0})", version);
 
         private static string getKey(string key) => $"{prefix}:{key}";
     }

@@ -24,6 +24,7 @@ using osu.Framework.Graphics.Sprites;
 using osu.Framework.Input;
 using osu.Framework.Input.Bindings;
 using osu.Framework.Input.Events;
+using osu.Framework.Input.Handlers.Tablet;
 using osu.Framework.Localisation;
 using osu.Framework.Logging;
 using osu.Framework.Screens;
@@ -56,14 +57,12 @@ using osu.Game.Screens.Menu;
 using osu.Game.Screens.Play;
 using osu.Game.Screens.Ranking;
 using osu.Game.Screens.Select;
-using osu.Game.Skinning;
 using osu.Game.Skinning.Editor;
 using osu.Game.Updater;
 using osu.Game.Users;
 using osu.Game.Utils;
 using osuTK.Graphics;
 using Sentry;
-using Logger = osu.Framework.Logging.Logger;
 
 namespace osu.Game
 {
@@ -159,6 +158,8 @@ namespace osu.Game
 
         protected FirstRunSetupOverlay FirstRunOverlay { get; private set; }
 
+        private FPSCounter fpsCounter;
+
         private VolumeOverlay volume;
 
         private OsuLogo osuLogo;
@@ -187,7 +188,8 @@ namespace osu.Game
         {
             this.args = args;
 
-            forwardLoggedErrorsToNotifications();
+            forwardGeneralLogsToNotifications();
+            forwardTabletLogsToNotifications();
 
             SentryLogger = new SentryLogger(this);
         }
@@ -292,25 +294,13 @@ namespace osu.Game
 
             Ruleset.ValueChanged += r => configRuleset.Value = r.NewValue.ShortName;
 
-            // bind config int to database SkinInfo
             configSkin = LocalConfig.GetBindable<string>(OsuSetting.Skin);
+
+            // Transfer skin from config to realm instance once on startup.
+            SkinManager.SetSkinFromConfiguration(configSkin.Value);
+
+            // Transfer any runtime changes back to configuration file.
             SkinManager.CurrentSkinInfo.ValueChanged += skin => configSkin.Value = skin.NewValue.ID.ToString();
-            configSkin.ValueChanged += skinId =>
-            {
-                Live<SkinInfo> skinInfo = null;
-
-                if (Guid.TryParse(skinId.NewValue, out var guid))
-                    skinInfo = SkinManager.Query(s => s.ID == guid);
-
-                if (skinInfo == null)
-                {
-                    if (guid == SkinInfo.CLASSIC_SKIN)
-                        skinInfo = DefaultLegacySkin.CreateInfo().ToLiveUnmanaged();
-                }
-
-                SkinManager.CurrentSkinInfo.Value = skinInfo ?? DefaultSkin.CreateInfo().ToLiveUnmanaged();
-            };
-            configSkin.TriggerChange();
 
             IsActive.BindValueChanged(active => updateActiveState(active.NewValue), true);
 
@@ -571,9 +561,11 @@ namespace osu.Game
                 return;
             }
 
+            // This should be able to be performed from song select, but that is disabled for now
+            // due to the weird decoupled ruleset logic (which can cause a crash in certain filter scenarios).
             PerformFromScreen(screen =>
             {
-                Logger.Log($"{nameof(PresentScore)} updating beatmap ({databasedBeatmap}) and ruleset ({databasedScore.ScoreInfo.Ruleset} to match score");
+                Logger.Log($"{nameof(PresentScore)} updating beatmap ({databasedBeatmap}) and ruleset ({databasedScore.ScoreInfo.Ruleset}) to match score");
 
                 Ruleset.Value = databasedScore.ScoreInfo.Ruleset;
                 Beatmap.Value = BeatmapManager.GetWorkingBeatmap(databasedBeatmap);
@@ -588,7 +580,7 @@ namespace osu.Game
                         screen.Push(new SoloResultsScreen(databasedScore.ScoreInfo, false));
                         break;
                 }
-            }, validScreens: new[] { typeof(PlaySongSelect) });
+            });
         }
 
         public override Task Import(params ImportTask[] imports)
@@ -714,7 +706,7 @@ namespace osu.Game
             // The next time this is updated is in UpdateAfterChildren, which occurs too late and results
             // in the cursor being shown for a few frames during the intro.
             // This prevents the cursor from showing until we have a screen with CursorVisible = true
-            MenuCursorContainer.CanShowCursor = menuScreen?.CursorVisible ?? false;
+            GlobalCursorDisplay.ShowCursor = menuScreen?.CursorVisible ?? false;
 
             // todo: all archive managers should be able to be looped here.
             SkinManager.PostNotification = n => Notifications.Post(n);
@@ -727,6 +719,8 @@ namespace osu.Game
 
             ScoreManager.PostNotification = n => Notifications.Post(n);
             ScoreManager.PresentImport = items => PresentScore(items.First().Value);
+
+            MultiplayerClient.PostNotification = n => Notifications.Post(n);
 
             // make config aware of how to lookup skins for on-screen display purposes.
             // if this becomes a more common thing, tracked settings should be reconsidered to allow local DI.
@@ -802,8 +796,8 @@ namespace osu.Game
                     Children = new Drawable[]
                     {
                         overlayContent = new Container { RelativeSizeAxes = Axes.Both },
-                        rightFloatingOverlayContent = new Container { RelativeSizeAxes = Axes.Both },
                         leftFloatingOverlayContent = new Container { RelativeSizeAxes = Axes.Both },
+                        rightFloatingOverlayContent = new Container { RelativeSizeAxes = Axes.Both },
                     }
                 },
                 topMostOverlayContent = new Container { RelativeSizeAxes = Axes.Both },
@@ -813,6 +807,13 @@ namespace osu.Game
 
             ScreenStack.ScreenPushed += screenPushed;
             ScreenStack.ScreenExited += screenExited;
+
+            loadComponentSingleFile(fpsCounter = new FPSCounter
+            {
+                Anchor = Anchor.BottomRight,
+                Origin = Anchor.BottomRight,
+                Margin = new MarginPadding(5),
+            }, topMostOverlayContent.Add);
 
             if (!args?.Any(a => a == @"--no-version-overlay") ?? true)
                 loadComponentSingleFile(versionManager = new VersionManager { Depth = int.MinValue }, ScreenContainer.Add);
@@ -830,7 +831,9 @@ namespace osu.Game
                 OnHome = delegate
                 {
                     CloseAllOverlays(false);
-                    menuScreen?.MakeCurrent();
+
+                    if (menuScreen?.GetChildScreen() != null)
+                        menuScreen.MakeCurrent();
                 },
             }, topMostOverlayContent.Add);
 
@@ -848,11 +851,6 @@ namespace osu.Game
                 d.Anchor = Anchor.TopRight;
                 d.Origin = Anchor.TopRight;
             }), rightFloatingOverlayContent.Add, true);
-
-            loadComponentSingleFile(new CollectionManager(Storage)
-            {
-                PostNotification = n => Notifications.Post(n),
-            }, Add, true);
 
             loadComponentSingleFile(legacyImportManager, Add);
 
@@ -894,6 +892,8 @@ namespace osu.Game
             loadComponentSingleFile<IDialogOverlay>(new DialogOverlay(), topMostOverlayContent.Add, true);
 
             loadComponentSingleFile(CreateHighPerformanceSession(), Add);
+
+            loadComponentSingleFile(new BackgroundBeatmapProcessor(), Add);
 
             chatOverlay.State.BindValueChanged(_ => updateChatPollRate());
             // Multiplayer modes need to increase poll rate temporarily.
@@ -998,7 +998,7 @@ namespace osu.Game
                 overlay.Depth = (float)-Clock.CurrentTime;
         }
 
-        private void forwardLoggedErrorsToNotifications()
+        private void forwardGeneralLogsToNotifications()
         {
             int recentLogCount = 0;
 
@@ -1006,7 +1006,7 @@ namespace osu.Game
 
             Logger.NewEntry += entry =>
             {
-                if (entry.Level < LogLevel.Important || entry.Target == null) return;
+                if (entry.Level < LogLevel.Important || entry.Target > LoggingTarget.Database) return;
 
                 const int short_term_display_limit = 3;
 
@@ -1037,6 +1037,52 @@ namespace osu.Game
                 Interlocked.Increment(ref recentLogCount);
                 Scheduler.AddDelayed(() => Interlocked.Decrement(ref recentLogCount), debounce);
             };
+        }
+
+        private void forwardTabletLogsToNotifications()
+        {
+            const string tablet_prefix = @"[Tablet] ";
+            bool notifyOnWarning = true;
+
+            Logger.NewEntry += entry =>
+            {
+                if (entry.Level < LogLevel.Important || entry.Target != LoggingTarget.Input || !entry.Message.StartsWith(tablet_prefix, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                string message = entry.Message.Replace(tablet_prefix, string.Empty);
+
+                if (entry.Level == LogLevel.Error)
+                {
+                    Schedule(() => Notifications.Post(new SimpleNotification
+                    {
+                        Text = $"Encountered tablet error: \"{message}\"",
+                        Icon = FontAwesome.Solid.PenSquare,
+                        IconColour = Colours.RedDark,
+                    }));
+                }
+                else if (notifyOnWarning)
+                {
+                    Schedule(() => Notifications.Post(new SimpleNotification
+                    {
+                        Text = @"Encountered tablet warning, your tablet may not function correctly. Click here for a list of all tablets supported.",
+                        Icon = FontAwesome.Solid.PenSquare,
+                        IconColour = Colours.YellowDark,
+                        Activated = () =>
+                        {
+                            OpenUrlExternally("https://opentabletdriver.net/Tablets", true);
+                            return true;
+                        }
+                    }));
+
+                    notifyOnWarning = false;
+                }
+            };
+
+            Schedule(() =>
+            {
+                ITabletHandler tablet = Host.AvailableInputHandlers.OfType<ITabletHandler>().SingleOrDefault();
+                tablet?.Tablet.BindValueChanged(_ => notifyOnWarning = true, true);
+            });
         }
 
         private Task asyncLoadStream;
@@ -1114,6 +1160,10 @@ namespace osu.Game
 
             switch (e.Action)
             {
+                case GlobalAction.ToggleFPSDisplay:
+                    fpsCounter.ToggleVisibility();
+                    return true;
+
                 case GlobalAction.ToggleSkinEditor:
                     skinEditor.ToggleVisibility();
                     return true;
@@ -1126,6 +1176,13 @@ namespace osu.Game
                 case GlobalAction.ToggleGameplayMouseButtons:
                     var mouseDisableButtons = LocalConfig.GetBindable<bool>(OsuSetting.MouseDisableButtons);
                     mouseDisableButtons.Value = !mouseDisableButtons.Value;
+                    return true;
+
+                case GlobalAction.ToggleProfile:
+                    if (userProfile.State.Value == Visibility.Visible)
+                        userProfile.Hide();
+                    else
+                        ShowUser(API.LocalUser.Value);
                     return true;
 
                 case GlobalAction.RandomSkin:
@@ -1216,7 +1273,7 @@ namespace osu.Game
             ScreenOffsetContainer.X = horizontalOffset;
             overlayContent.X = horizontalOffset * 1.2f;
 
-            MenuCursorContainer.CanShowCursor = (ScreenStack.CurrentScreen as IOsuScreen)?.CursorVisible ?? false;
+            GlobalCursorDisplay.ShowCursor = (ScreenStack.CurrentScreen as IOsuScreen)?.CursorVisible ?? false;
         }
 
         private void screenChanged(IScreen current, IScreen newScreen)

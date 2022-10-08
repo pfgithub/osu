@@ -108,47 +108,42 @@ namespace osu.Game.Database
 
             bool isBatchImport = tasks.Length >= minimum_items_considered_batch_import;
 
-            try
+            await Task.WhenAll(tasks.Select(async task =>
             {
-                await Task.WhenAll(tasks.Select(async task =>
+                if (notification.CancellationToken.IsCancellationRequested)
+                    return;
+
+                try
                 {
-                    notification.CancellationToken.ThrowIfCancellationRequested();
+                    var model = await Import(task, isBatchImport, notification.CancellationToken).ConfigureAwait(false);
 
-                    try
+                    lock (imported)
                     {
-                        var model = await Import(task, isBatchImport, notification.CancellationToken).ConfigureAwait(false);
+                        if (model != null)
+                            imported.Add(model);
+                        current++;
 
-                        lock (imported)
-                        {
-                            if (model != null)
-                                imported.Add(model);
-                            current++;
+                        notification.Text = $"Imported {current} of {tasks.Length} {HumanisedModelName}s";
+                        notification.Progress = (float)current / tasks.Length;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception e)
+                {
+                    Logger.Error(e, $@"Could not import ({task})", LoggingTarget.Database);
+                }
+            })).ConfigureAwait(false);
 
-                            notification.Text = $"Imported {current} of {tasks.Length} {HumanisedModelName}s";
-                            notification.Progress = (float)current / tasks.Length;
-                        }
-                    }
-                    catch (TaskCanceledException)
-                    {
-                        throw;
-                    }
-                    catch (Exception e)
-                    {
-                        Logger.Error(e, $@"Could not import ({task})", LoggingTarget.Database);
-                    }
-                })).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
+            if (imported.Count == 0)
             {
-                if (imported.Count == 0)
+                if (notification.CancellationToken.IsCancellationRequested)
                 {
                     notification.State = ProgressNotificationState.Cancelled;
                     return imported;
                 }
-            }
 
-            if (imported.Count == 0)
-            {
                 notification.Text = $"{HumanisedModelName.Humanize(LetterCasing.Title)} import failed!";
                 notification.State = ProgressNotificationState.Cancelled;
             }
@@ -173,6 +168,8 @@ namespace osu.Game.Database
 
             return imported;
         }
+
+        public virtual Task<Live<TModel>?> ImportAsUpdate(ProgressNotification notification, ImportTask task, TModel original) => throw new NotImplementedException();
 
         /// <summary>
         /// Import one <typeparamref name="TModel"/> from the filesystem and delete the file on success.
@@ -258,15 +255,13 @@ namespace osu.Game.Database
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            bool checkedExisting = false;
-            TModel? existing = null;
+            TModel? existing;
 
             if (batchImport && archive != null)
             {
                 // this is a fast bail condition to improve large import performance.
                 item.Hash = computeHashFast(archive);
 
-                checkedExisting = true;
                 existing = CheckForExisting(item, realm);
 
                 if (existing != null)
@@ -311,8 +306,12 @@ namespace osu.Game.Database
                     // TODO: we may want to run this outside of the transaction.
                     Populate(item, archive, realm, cancellationToken);
 
-                    if (!checkedExisting)
-                        existing = CheckForExisting(item, realm);
+                    // Populate() may have adjusted file content (see SkinImporter.updateSkinIniMetadata), so regardless of whether a fast check was done earlier, let's
+                    // check for existing items a second time.
+                    //
+                    // If this is ever a performance issue, the fast-check hash can be compared and trigger a skip of this second check if it still matches.
+                    // I don't think it is a huge deal doing a second indexed check, though.
+                    existing = CheckForExisting(item, realm);
 
                     if (existing != null)
                     {
@@ -336,10 +335,10 @@ namespace osu.Game.Database
                     // import to store
                     realm.Add(item);
 
+                    PostImport(item, realm, batchImport);
+
                     transaction.Commit();
                 }
-
-                PostImport(item, realm);
 
                 LogForModel(item, @"Import successfully completed!");
             }
@@ -386,7 +385,7 @@ namespace osu.Game.Database
         /// <remarks>
         ///  In the case of no matching files, a hash will be generated from the passed archive's <see cref="ArchiveReader.Name"/>.
         /// </remarks>
-        protected string ComputeHash(TModel item)
+        public string ComputeHash(TModel item)
         {
             // for now, concatenate all hashable files in the set to create a unique hash.
             MemoryStream hashable = new MemoryStream();
@@ -477,11 +476,12 @@ namespace osu.Game.Database
         }
 
         /// <summary>
-        /// Perform any final actions after the import has been committed to the database.
+        /// Perform any final actions before the import has been committed to the database.
         /// </summary>
         /// <param name="model">The model prepared for import.</param>
         /// <param name="realm">The current realm context.</param>
-        protected virtual void PostImport(TModel model, Realm realm)
+        /// <param name="batchImport">Whether the import was part of a batch.</param>
+        protected virtual void PostImport(TModel model, Realm realm, bool batchImport)
         {
         }
 

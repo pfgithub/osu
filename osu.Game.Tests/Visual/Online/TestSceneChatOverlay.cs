@@ -39,7 +39,8 @@ namespace osu.Game.Tests.Visual.Online
         private TestChatOverlay chatOverlay;
         private ChannelManager channelManager;
 
-        private APIUser testUser;
+        private readonly APIUser testUser = new APIUser { Username = "test user", Id = 5071479 };
+
         private Channel[] testChannels;
 
         private Channel testChannel1 => testChannels[0];
@@ -51,7 +52,6 @@ namespace osu.Game.Tests.Visual.Online
         [SetUp]
         public void SetUp() => Schedule(() =>
         {
-            testUser = new APIUser { Username = "test user", Id = 5071479 };
             testChannels = Enumerable.Range(1, 10).Select(createPublicChannel).ToArray();
 
             Child = new DependencyProvidingContainer
@@ -576,12 +576,13 @@ namespace osu.Game.Tests.Visual.Online
 
         private Channel createAnnounceChannel()
         {
-            int id = RNG.Next(0, DummyAPIAccess.DUMMY_USER_ID - 1);
+            const int announce_channel_id = 133337;
+
             return new Channel
             {
-                Name = $"Announce {id}",
+                Name = $"Announce {announce_channel_id}",
                 Type = ChannelType.Announce,
-                Id = id,
+                Id = announce_channel_id,
             };
         }
 

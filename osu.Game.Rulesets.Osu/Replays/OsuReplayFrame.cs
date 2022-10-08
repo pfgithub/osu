@@ -1,8 +1,6 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-#nullable disable
-
 using System.Collections.Generic;
 using osu.Game.Beatmaps;
 using osu.Game.Replays.Legacy;
@@ -28,11 +26,12 @@ namespace osu.Game.Rulesets.Osu.Replays
             Actions.AddRange(actions);
         }
 
-        public void FromLegacy(LegacyReplayFrame currentFrame, IBeatmap beatmap, ReplayFrame lastFrame = null)
+        public void FromLegacy(LegacyReplayFrame currentFrame, IBeatmap beatmap, ReplayFrame? lastFrame = null)
         {
             Position = currentFrame.Position;
             if (currentFrame.MouseLeft) Actions.Add(OsuAction.LeftButton);
             if (currentFrame.MouseRight) Actions.Add(OsuAction.RightButton);
+            if (currentFrame.Smoke) Actions.Add(OsuAction.Smoke);
         }
 
         public LegacyReplayFrame ToLegacy(IBeatmap beatmap)
@@ -43,6 +42,8 @@ namespace osu.Game.Rulesets.Osu.Replays
                 state |= ReplayButtonState.Left1;
             if (Actions.Contains(OsuAction.RightButton))
                 state |= ReplayButtonState.Right1;
+            if (Actions.Contains(OsuAction.Smoke))
+                state |= ReplayButtonState.Smoke;
 
             return new LegacyReplayFrame(Time, Position.X, Position.Y, state);
         }
