@@ -143,7 +143,7 @@ namespace osu.Game.Screens.Edit
         private readonly BindableBeatDivisor beatDivisor = new BindableBeatDivisor();
         private EditorClock clock;
 
-        private double? playPreviewStartTime { get; set; } = null;
+        private double? playPreviewStartTime { get; set; }
 
         private IBeatmap playableBeatmap;
         private EditorBeatmap editorBeatmap;
@@ -588,6 +588,7 @@ namespace osu.Game.Screens.Edit
                         playPreviewStartTime = clock.CurrentTime;
                         clock.Start();
                     }
+
                     return true;
 
                 default:
@@ -606,6 +607,7 @@ namespace osu.Game.Screens.Edit
                         clock.Seek(playPreviewStartTime.Value);
                         playPreviewStartTime = null;
                     }
+
                     return;
 
                 default:
